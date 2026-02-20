@@ -1839,9 +1839,6 @@ def rustc_compile_action(
     stamp = is_stamping_enabled(attr)
 
     # Add flags for any 'rustc' lints that are specified.
-    #
-    # An explicit lint configuration belongs to the crate in either
-    # configuration, including first-party build scripts and procedural macros.
     lint_files = []
     if hasattr(ctx.attr, "lint_config") and ctx.attr.lint_config:
         rust_flags = rust_flags + ctx.attr.lint_config[LintsInfo].rustc_lint_flags
