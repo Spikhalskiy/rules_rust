@@ -571,13 +571,6 @@ def _get_linker_args(linker_config):
 
     return link_args
 
-def _get_dlltool_path(feature_configuration):
-    linker_path = cc_common.get_tool_for_action(
-        feature_configuration = feature_configuration,
-        action_name = CPP_LINK_EXECUTABLE_ACTION_NAME,
-    )
-    return dlltool_path_from_linker_path(linker_path)
-
 _EMPTY_MACOS_SDKROOT = Label("//rust/private:empty_macos_sdkroot")
 
 def _apple_sdkroot(ctx, attr):
@@ -590,6 +583,71 @@ def _apple_sdkroot(ctx, attr):
         fail("macos_sdkroot must provide exactly one file")
 
     return "${{pwd}}/{}".format(files[0].path)
+
+# The environment variables rustc reads the Apple deployment target from,
+# keyed by the OS names clang accepts in a `-target` triple and in
+# `-m<os>-version-min=`.
+_APPLE_DEPLOYMENT_TARGET_ENV = {
+    "ios": "IPHONEOS_DEPLOYMENT_TARGET",
+    "iphoneos": "IPHONEOS_DEPLOYMENT_TARGET",
+    "macos": "MACOSX_DEPLOYMENT_TARGET",
+    "macosx": "MACOSX_DEPLOYMENT_TARGET",
+    "tvos": "TVOS_DEPLOYMENT_TARGET",
+    "visionos": "XROS_DEPLOYMENT_TARGET",
+    "watchos": "WATCHOS_DEPLOYMENT_TARGET",
+    "xros": "XROS_DEPLOYMENT_TARGET",
+}
+
+def _split_os_version(os_version):
+    """Splits `macosx26.0` into `("macosx", "26.0")`. The version may be empty."""
+    for i in range(len(os_version)):
+        if os_version[i].isdigit():
+            return os_version[:i], os_version[i:]
+    return os_version, ""
+
+def apple_deployment_target_env(link_args):
+    """Derives the Apple deployment target variable rustc expects from linker arguments.
+
+    An Apple cc_toolchain tells clang its deployment target through the
+    `-target` triple (e.g. `arm64-apple-macosx26.0`) or `-m<os>-version-min=`.
+    rustc does not read the link args it forwards: it takes the deployment
+    target from `MACOSX_DEPLOYMENT_TARGET` and its per-OS siblings and, when
+    those are unset, from its own default, which it passes to the linker as
+    `-m<os>-version-min=`. clang then warns about the conflicting options on
+    every link (bazelbuild/rules_rust#4149).
+
+    As in clang, a version carried by the last `-target` triple wins over
+    `-m<os>-version-min=`.
+
+    Args:
+        link_args (list): The linker arguments forwarded to rustc.
+
+    Returns:
+        dict: The deployment target variable to set for rustc, if any.
+    """
+    triple = None
+    version_min = None
+    for i, arg in enumerate(link_args):
+        if arg == "-target" and i + 1 < len(link_args):
+            triple = link_args[i + 1]
+        elif arg.startswith("--target="):
+            triple = arg[len("--target="):]
+        elif arg.startswith("-m") and "-version-min=" in arg:
+            version_min = arg[len("-m"):].split("-version-min=", 1)
+
+    os, version = None, None
+    if triple:
+        parts = triple.split("-")
+        if len(parts) >= 3 and parts[1] == "apple":
+            os, version = _split_os_version(parts[2])
+    if not version and version_min:
+        # `-mios-simulator-version-min=` names the OS before the environment.
+        os, version = version_min[0].split("-")[0], version_min[1]
+
+    var = _APPLE_DEPLOYMENT_TARGET_ENV.get(os)
+    if not var or not version:
+        return {}
+    return {var: version}
 
 def symlink_for_ambiguous_lib(actions, toolchain, crate_info, lib):
     """Constructs a disambiguating symlink for a library dependency.
@@ -842,10 +900,6 @@ def collect_inputs(
     # flattened on each transitive rust_library dependency.
     is_linking_action = crate_info.type not in ("lib", "rlib") or force_link_inputs
 
-    # rustc invokes dlltool for Windows GNU raw-dylib imports, including in rlibs.
-    # Windows GNU LLVM and MSVC generate import libraries inside rustc.
-    needs_dlltool = cc_toolchain and toolchain.target_os == "windows" and toolchain.target_abi == "gnu"
-    needs_linker_files = (is_linking_action and not experimental_use_cc_common_link) or needs_dlltool
     libs_from_linker_inputs = []
     ambiguous_libs = {}
     if is_linking_action:
@@ -901,7 +955,7 @@ def collect_inputs(
             toolchain.all_files,
         ] + ([] if experimental_use_cc_common_link or not is_linking_action else [
             runtime_libs,
-        ]) + ([linker_depset] if needs_linker_files else []),
+        ]) + ([linker_depset] if is_linking_action and not experimental_use_cc_common_link else []),
     )
 
     # Register linkstamps when linking with rustc (when linking with
@@ -1045,22 +1099,6 @@ def _args_map_bin_dir(file):
     """
     return "/".join(file.path.split("/", 3)[:3])
 
-def dlltool_path_from_linker_path(linker_path):
-    """Derives the path to `dlltool`, which MinGW ships next to the linker.
-
-    Args:
-        linker_path (str): Path to the cc_toolchain's linker executable.
-
-    Returns:
-        str: The derived path, or None if `linker_path` has no directory component.
-    """
-    sep = max(linker_path.rfind("/"), linker_path.rfind("\\"))
-    if sep < 0:
-        return None
-
-    suffix = linker_path[-4:].lower()
-    return "{}dlltool{}".format(linker_path[:sep + 1], suffix if suffix == ".exe" else "")
-
 def construct_arguments(
         *,
         ctx,
@@ -1096,7 +1134,8 @@ def construct_arguments(
         allowed_unstable_rust_features = None,
         link_std_dylib = None,
         runtime_libs = None,
-        linker_plugin_lto = False):
+        linker_plugin_lto = False,
+        bin_link_flags = None):
     """Builds an Args object containing common rustc flags
 
     Args:
@@ -1172,6 +1211,7 @@ def construct_arguments(
             selected for `crate_info.type`.
         linker_plugin_lto (bool): Whether to pass `-Clinker-plugin-lto` instead
             of the `//rust/settings:lto` flags.
+        bin_link_flags (File, optional): Binary-scoped build-script arguments, selected by `cargo_bin_name`.
 
     Returns:
         tuple: A tuple of the following items
@@ -1465,14 +1505,9 @@ def construct_arguments(
     # If linker_type is not explicitly set, infer from which linker is actually being used
     ld_is_direct_driver = False
 
-    # gcc runs dlltool internally when acting as the linker, but rustc drives the linker directly so
-    # it needs dlltool's path: apply outside the link-emit gate below since rlib compiles need it too.
-    if cc_toolchain and toolchain.target_os == "windows" and toolchain.target_abi == "gnu":
-        rustc_flags.add_all(
-            [feature_configuration],
-            map_each = _get_dlltool_path,
-            format_each = "--codegen=dlltool=%s",
-        )
+    # Windows GNU rlibs can also contain raw-dylib imports.
+    if toolchain.target_os == "windows" and toolchain.target_abi == "gnu" and toolchain.dlltool:
+        rustc_flags.add(toolchain.dlltool, format = "--codegen=dlltool=%s")
 
     # Link!
     if ("link" in emit and crate_info.type not in ["rlib", "lib"]) or add_flags_for_binary:
@@ -1515,6 +1550,13 @@ def construct_arguments(
             ld_is_direct_driver = linker_config.is_direct_driver
             link_env = _get_linker_env(linker_config)
             env.update(link_env)
+
+            # Only expand C++ linker arguments during analysis when the target
+            # or an explicit --linkopt selects an Apple deployment target.
+            if toolchain.target_os in _APPLE_DEPLOYMENT_TARGET_ENV or apple_deployment_target_env(get_cc_user_link_flags(ctx)):
+                for key, value in apple_deployment_target_env(_get_linker_args(linker_config)).items():
+                    if key not in ctx.configuration.default_shell_env:
+                        env[key] = value
 
             # XcodeLocalEnvProvider adds SDKROOT when APPLE_SDK_PLATFORM is set.
             if "APPLE_SDK_PLATFORM" not in link_env:

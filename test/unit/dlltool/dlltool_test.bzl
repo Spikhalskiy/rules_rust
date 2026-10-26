@@ -76,6 +76,8 @@ def _define_targets():
             name = "windows_{}_rust_toolchain".format(abi),
             binary_ext = ".exe",
             dlltool = ":mock_dlltool",
+            linker = ":mock_linker",
+            process_wrapper = "//util/process_wrapper",
             dylib_ext = ".dll",
             exec_triple = "x86_64-unknown-linux-gnu",
             rust_doc = ":mock_rustdoc",
@@ -98,7 +100,7 @@ def _define_targets():
         srcs = [],
     )
 
-    for tool in ["mock_dlltool", "mock_rustc", "mock_rustdoc"]:
+    for tool in ["mock_dlltool", "mock_linker", "mock_rustc", "mock_rustdoc"]:
         write_file(
             name = tool,
             out = tool + ".exe",

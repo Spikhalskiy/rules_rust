@@ -1,9 +1,9 @@
-"""Tests for Windows-specific library naming, link flags, and dlltool derivation."""
+"""Tests for Windows-specific library naming and link flags."""
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
 
 # buildifier: disable=bzl-visibility
-load("//rust/private:rustc.bzl", "collect_inputs", "dlltool_path_from_linker_path", "portable_link_flags", "symlink_for_ambiguous_lib")
+load("//rust/private:rustc.bzl", "portable_link_flags", "symlink_for_ambiguous_lib")
 
 # buildifier: disable=bzl-visibility
 load("//rust/private:utils.bzl", "determine_lib_name", "get_lib_name_default", "get_lib_name_for_windows")
@@ -191,89 +191,6 @@ def _cdylib_name_windows_gnu_test_impl(ctx):
 
 cdylib_name_windows_gnu_test = unittest.make(_cdylib_name_windows_gnu_test_impl)
 
-def _dlltool_path_from_linker_path_test_impl(ctx):
-    env = unittest.begin(ctx)
-
-    # Cross-compiling from a Unix host (e.g. llvm-mingw or a Debian mingw-w64 package):
-    asserts.equals(
-        env,
-        "/usr/x86_64-w64-mingw32/bin/dlltool",
-        dlltool_path_from_linker_path("/usr/x86_64-w64-mingw32/bin/x86_64-w64-mingw32-gcc"),
-    )
-
-    # Windows-style linker path (native MinGW toolchain):
-    asserts.equals(
-        env,
-        "C:\\mingw64\\bin\\dlltool.exe",
-        dlltool_path_from_linker_path("C:\\mingw64\\bin\\GCC.EXE"),
-    )
-
-    # No directory component: nothing to derive from:
-    asserts.equals(env, None, dlltool_path_from_linker_path("gcc"))
-
-    return unittest.end(env)
-
-dlltool_path_from_linker_path_test = unittest.make(_dlltool_path_from_linker_path_test_impl)
-
-def _rlib_dlltool_inputs_test_impl(ctx):
-    env = unittest.begin(ctx)
-    dlltool = ctx.actions.declare_file(ctx.label.name + "/dlltool.exe")
-    runtime = ctx.actions.declare_file(ctx.label.name + "/runtime.a")
-    ctx.actions.write(dlltool, "")
-    ctx.actions.write(runtime, "")
-
-    for target_os, target_abi, crate_type, expect_dlltool in [
-        ("windows", "gnu", "lib", True),
-        ("windows", "gnu", "rlib", True),
-        ("windows", "gnullvm", "rlib", False),
-        ("windows", "msvc", "rlib", False),
-        ("linux", "gnu", "rlib", False),
-    ]:
-        inputs, _, _, _, _, _ = collect_inputs(
-            ctx = ctx,
-            file = struct(),
-            files = struct(),
-            linkstamps = depset(),
-            toolchain = struct(
-                target_os = target_os,
-                target_abi = target_abi,
-                target_triple = None,
-                target_json = None,
-                all_files = depset(),
-                _incompatible_do_not_include_data_in_compile_data = True,
-                _incompatible_do_not_include_transitive_data_in_compile_inputs = True,
-            ),
-            cc_toolchain = struct(_linker_files = depset([dlltool])),
-            feature_configuration = None,
-            crate_info = struct(
-                type = crate_type,
-                srcs = depset(),
-                compile_data = depset(),
-                rustc_env_files = [],
-            ),
-            dep_info = struct(
-                transitive_crate_outputs = depset(),
-                transitive_metadata_outputs = depset(),
-                transitive_proc_macro_data = depset(),
-                transitive_noncrates = depset(),
-                link_search_path_files = depset(),
-                transitive_build_infos = depset(),
-            ),
-            build_info = None,
-            lint_files = [],
-            runtime_libs = depset([runtime]),
-        )
-        asserts.equals(
-            env,
-            [dlltool] if expect_dlltool else [],
-            inputs.to_list(),
-            "%s/%s %s inputs" % (target_os, target_abi, crate_type),
-        )
-
-    return unittest.end(env)
-
-rlib_dlltool_inputs_test = unittest.make(_rlib_dlltool_inputs_test_impl)
-
 def _define_targets():
     portable_link_flags_probe(
         name = "portable_link_flags_windows_gnu_probe",
@@ -333,14 +250,6 @@ def windows_lib_name_test_suite(name):
     cdylib_name_windows_gnu_test(
         name = "cdylib_name_windows_gnu_test",
     )
-    dlltool_path_from_linker_path_test(
-        name = "dlltool_path_from_linker_path_test",
-    )
-
-    rlib_dlltool_inputs_test(
-        name = "rlib_dlltool_inputs_test",
-    )
-
     native.test_suite(
         name = name,
         tests = [
@@ -352,7 +261,5 @@ def windows_lib_name_test_suite(name):
             ":staticlib_name_windows_gnullvm_test",
             ":staticlib_name_windows_msvc_test",
             ":cdylib_name_windows_gnu_test",
-            ":dlltool_path_from_linker_path_test",
-            ":rlib_dlltool_inputs_test",
         ],
     )

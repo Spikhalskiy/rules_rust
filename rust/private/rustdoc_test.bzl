@@ -167,7 +167,7 @@ rust_doc_test = rule(
         ),
         "_test_runner": attr.label(
             doc = "A binary used for replaying rustdoc test build action results.",
-            cfg = "exec",
+            cfg = config.exec("test"),
             default = Label("//rust/private:captured_output_test_runner"),
             executable = True,
         ),

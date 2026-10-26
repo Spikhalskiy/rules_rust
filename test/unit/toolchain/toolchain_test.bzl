@@ -226,6 +226,7 @@ def _define_test_targets():
         dylib_ext = ".so",
         exec_triple = "x86_64-unknown-none",
         lto = ":fat_lto",
+        process_wrapper = "//util/process_wrapper",
         rust_doc = ":mock_rustdoc",
         rust_std = ":std_libs",
         rustc = ":mock_rustc",

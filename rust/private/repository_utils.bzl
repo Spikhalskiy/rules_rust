@@ -332,27 +332,6 @@ def BUILD_for_llvm_tools(target_triple):
         target_triple = target_triple.str,
     )
 
-_build_file_for_rust_mingw = """\
-filegroup(
-    name = "rust_mingw_dlltool",
-    srcs = ["lib/rustlib/{target_triple}/bin/self-contained/dlltool.exe"],
-    visibility = ["//visibility:public"],
-)
-"""
-
-def BUILD_for_rust_mingw(target_triple):
-    """Emits a BUILD file for the rust-mingw binaries.
-
-    Args:
-        target_triple (struct): The triple of the exec platform
-
-    Returns:
-        str: The contents of a BUILD file
-    """
-    return _build_file_for_rust_mingw.format(
-        target_triple = target_triple.str,
-    )
-
 _build_file_for_stdlib_template = """\
 load("@rules_rust//rust:toolchain.bzl", "rust_stdlib_filegroup")
 
@@ -417,6 +396,7 @@ rust_toolchain(
     rustc_lib = "//:rustc_lib",
     allocator_library = {allocator_library},
     global_allocator_library = {global_allocator_library},
+    dlltool = {dlltool},
     binary_ext = "{binary_ext}",
     staticlib_ext = "{staticlib_ext}",
     dylib_ext = "{dylib_ext}",
@@ -429,6 +409,9 @@ rust_toolchain(
     extra_exec_rustc_flags = {extra_exec_rustc_flags},
     opt_level = {opt_level},
     strip_level = {strip_level},
+    version = "{version}",
+    channel = "{channel}",
+    iso_date = {iso_date},
     tags = ["rust_version={version}"],
 )
 
@@ -558,6 +541,10 @@ def BUILD_for_rust_toolchain(
     if include_objcopy:
         rust_objcopy_label = "//:rust-objcopy"
 
+    dlltool_label = None
+    if target_triple.system == "windows" and target_triple.abi == "gnu":
+        dlltool_label = dlltool or str(Label("@llvm//tools:llvm-dlltool"))
+
     return _build_file_for_rust_toolchain_template.format(
         toolchain_name = name,
         binary_ext = system_to_binary_ext(target_triple.system),
@@ -565,7 +552,7 @@ def BUILD_for_rust_toolchain(
         dylib_ext = system_to_dylib_ext(target_triple.system),
         allocator_library = repr(allocator_library_label),
         global_allocator_library = repr(global_allocator_library_label),
-        dlltool = repr(dlltool or None),
+        dlltool = repr(dlltool_label),
         stdlib_linkflags = stdlib_linkflags,
         default_edition = default_edition,
         exec_triple = exec_triple.str,
@@ -593,20 +580,7 @@ toolchain(
     target_compatible_with = {target_constraint_sets_serialized},
     toolchain = "{toolchain}",
     toolchain_type = "{toolchain_type}",
-    target_settings = [
-        "@rules_rust//rust/private:bootstrapped",{target_settings}
-    ],
-)
-
-toolchain(
-    name = "{name}_bootstrap",
-    exec_compatible_with = {exec_constraint_sets_serialized},
-    target_compatible_with = {target_constraint_sets_serialized},
-    toolchain = "{toolchain}_bootstrap",
-    toolchain_type = "{toolchain_type}",
-    target_settings = [
-        "@rules_rust//rust/private:bootstrapping",{target_settings}
-    ],
+    target_settings = {target_settings},
 )
 """
 
@@ -617,16 +591,23 @@ def BUILD_for_toolchain(
         target_settings,
         target_compatible_with,
         exec_compatible_with):
-    target_settings_value = ",\n        ".join([repr(setting) for setting in target_settings])
-
-    return _build_file_for_toolchain_template.format(
-        name = name,
-        exec_constraint_sets_serialized = json.encode(exec_compatible_with),
-        target_constraint_sets_serialized = json.encode(target_compatible_with),
-        toolchain = toolchain,
-        toolchain_type = toolchain_type,
-        target_settings = target_settings_value,
-    )
+    variants = [("", [])]
+    if toolchain_type in ("@rules_rust//rust:toolchain", "@rules_rust//rust:toolchain_type"):
+        variants = [
+            ("", ["@rules_rust//rust/private:bootstrapped"]),
+            ("_bootstrap", ["@rules_rust//rust/private:bootstrapping"]),
+        ]
+    return "\n".join([
+        _build_file_for_toolchain_template.format(
+            name = name + suffix,
+            exec_constraint_sets_serialized = json.encode(exec_compatible_with),
+            target_constraint_sets_serialized = json.encode(target_compatible_with),
+            toolchain = toolchain + suffix,
+            toolchain_type = toolchain_type,
+            target_settings = json.encode(settings + target_settings),
+        )
+        for suffix, settings in variants
+    ])
 
 def load_rust_analyzer(ctx, target_triple, version, iso_date):
     """Loads a rust-analyzer binary and yields corresponding BUILD for it
@@ -973,29 +954,6 @@ def load_llvm_tools(ctx, target_triple, version, iso_date = None):
     )
 
     return BUILD_for_llvm_tools(target_triple), sha256
-
-def load_rust_mingw(ctx, target_triple, version, iso_date = None):
-    """Loads the rust-mingw component
-
-    Args:
-        ctx (repository_ctx): A repository_ctx.
-        target_triple (struct): The rust-style triple of the exec platform
-        version (str): The version of the tool among \"nightly\", \"beta\", or an exact version.
-        iso_date (str): The iso_date to use with \"nightly\" or \"beta\" versions.
-
-    Returns:
-        Tuple[str, Dict[str, str]]: The BUILD.bazel content and sha256 value of the rust-mingw artifact.
-    """
-    sha256 = load_arbitrary_tool(
-        ctx,
-        iso_date = iso_date,
-        target_triple = target_triple,
-        tool_name = "rust-mingw",
-        tool_subdirectories = ["rust-mingw"],
-        version = version,
-    )
-
-    return BUILD_for_rust_mingw(target_triple), sha256
 
 def check_version_valid(version, iso_date, param_prefix = ""):
     """Verifies that the provided rust version and iso_date make sense.

@@ -17,7 +17,7 @@ def _cargo_toolchain_impl(ctx):
 
     toolchain = platform_common.ToolchainInfo(
         cargo = cargo,
-        all_files = depset([cargo]),
+        all_files = depset([cargo], transitive = [ctx.attr.cargo[DefaultInfo].default_runfiles.files]),
         make_variables = make_variable_info,
         version = ctx.attr.version,
         iso_date = ctx.attr.iso_date,

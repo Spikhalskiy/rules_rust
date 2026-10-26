@@ -618,6 +618,8 @@ def _rust_toolchain_impl(ctx):
 
     # C++ toolchain inputs are attached to the Rust actions that use them.
     all_files_depsets = [sysroot.all_files]
+    if ctx.file.dlltool:
+        all_files_depsets.append(depset([ctx.file.dlltool]))
 
     # Parse the version string once so downstream rules can branch on the
     # semver components without re-parsing. `None` for empty or non-semver
@@ -759,11 +761,7 @@ rust_toolchain = rule(
             ),
         ),
         "dlltool": attr.label(
-            doc = (
-                "The `dlltool` binary rustc uses to generate import libraries. " +
-                "If unset, it is derived from the `cc_toolchain`'s linker path, " +
-                "which assumes a MinGW binutils layout."
-            ),
+            doc = "The dlltool executable rustc uses to generate Windows GNU import libraries.",
             allow_single_file = True,
             cfg = "exec",
         ),

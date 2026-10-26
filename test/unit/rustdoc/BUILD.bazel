@@ -20,11 +20,3 @@ platform(
         "@platforms//os:macos",
     ],
 )
-
-config_setting(
-    name = "compiled_doctests",
-    flag_values = {
-        "//rust/settings:experimental_compile_rustdoc_tests": "true",
-        "//rust/toolchain/channel:channel": "nightly",
-    },
-)

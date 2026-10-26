@@ -32,8 +32,11 @@ def _extra_rustc_flags_present_test(ctx):
         asserts.true(env, any([action.mnemonic == "Rustc" for action in target.actions]), "expected a target-configuration Rustc action")
     target_action_contains_flag(env, target, ctx.attr.rustc_flags)
 
-    if ctx.attr.expect_exec_config_excludes_flags:
-        target = ctx.attr.lib_exec
+    target = ctx.attr.lib_exec
+    if ctx.attr.apply_in_exec:
+        asserts.true(env, any([action.mnemonic == "Rustc" for action in target.actions]), "expected an exec-configuration Rustc action")
+        target_action_contains_flag(env, target, ctx.attr.rustc_flags)
+    else:
         target_action_contains_not_flag(env, target, ctx.attr.rustc_flags)
 
     return analysistest.end(env)
@@ -48,9 +51,6 @@ extra_rustc_flag_present_test = analysistest.make(
         ),
         "rustc_flags": attr.string_list(
             mandatory = True,
-        ),
-        "expect_exec_config_excludes_flags": attr.bool(
-            default = True,
         ),
     },
 )
@@ -108,7 +108,6 @@ def lint_flags_test_suite(name):
         name = "rustc_lints_apply_flags",
         target_under_test = ":lib",
         lib_exec = ":lib",
-        expect_exec_config_excludes_flags = False,
         rustc_flags = [
             "--allow=unknown_lints",
             "--check-cfg=cfg(bazel)",

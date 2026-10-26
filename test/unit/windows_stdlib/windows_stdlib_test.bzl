@@ -50,7 +50,7 @@ def _build_for_rust_toolchain_windows_flags_test_impl(ctx):
     )
     rendered_gnu = BUILD_for_rust_toolchain(
         name = "tc_gnu",
-        exec_triple = gnu_triple,
+        exec_triple = triple("x86_64-unknown-linux-gnu"),
         target_triple = gnu_triple,
         version = "1.75.0",
         channel = "stable",
@@ -71,6 +71,11 @@ def _build_for_rust_toolchain_windows_flags_test_impl(ctx):
         'stdlib_linkflags = ["-lws2_32", "-luserenv", "-lbcrypt", "-lntdll", "-lsynchronization"],' in rendered_gnu,
         "GNU toolchain should render -l stdlib linkflags:\n%s" % rendered_gnu,
     )
+
+    # Both the regular and bootstrap rust_toolchain declare the execution tool.
+    dlltool_attr = "dlltool = %r," % str(Label("@llvm//tools:llvm-dlltool"))
+    asserts.equals(env, 2, rendered_gnu.count(dlltool_attr))
+    asserts.equals(env, 2, rendered_msvc.count("dlltool = None,"))
     asserts.true(
         env,
         'staticlib_ext = ".a",' in rendered_gnu,

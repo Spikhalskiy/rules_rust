@@ -2,7 +2,6 @@ cargo
 clippy
 llvm-tools
 rust
-rust-mingw
 rust-std
 rustc
 rustfmt

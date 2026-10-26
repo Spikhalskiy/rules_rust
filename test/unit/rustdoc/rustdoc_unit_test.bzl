@@ -260,29 +260,29 @@ rustdoc_test_with_dynamic_std_test = analysistest.make(
 )
 rustdoc_test_uses_cc_library_native_lib_test = analysistest.make(_rustdoc_test_uses_cc_library_native_lib_test_impl)
 
-def _compiled_runner_file(target):
+def _replay_runner_file(target):
     executable = target[DefaultInfo].files_to_run.executable
     action = [action for action in target.actions if executable in action.outputs.to_list()][0]
     return action.inputs.to_list()[0]
 
-def _compiled_runner_test_impl(ctx):
+def _replay_runner_test_impl(ctx):
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
-    runner = _compiled_runner_file(target)
+    runner = _replay_runner_file(target)
     executable = target[DefaultInfo].files_to_run.executable
 
-    asserts.true(env, any([action.mnemonic == "RustdocTestCompile" for action in target.actions]))
+    asserts.true(env, any([action.mnemonic == "RustdocTest" for action in target.actions]))
     asserts.equals(env, runner.extension, executable.extension)
     return analysistest.end(env)
 
-compiled_runner_test = analysistest.make(
-    _compiled_runner_test_impl,
+replay_runner_test = analysistest.make(
+    _replay_runner_test_impl,
 )
 
-def _compiled_runner_platform_test_impl(ctx):
+def _replay_runner_platform_test_impl(ctx):
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
-    runner = _compiled_runner_file(target)
+    runner = _replay_runner_file(target)
     asserts.true(
         env,
         runner.path.startswith("bazel-out/macos_x86_64-"),
@@ -290,32 +290,14 @@ def _compiled_runner_platform_test_impl(ctx):
     )
     return analysistest.end(env)
 
-compiled_runner_platform_test = analysistest.make(
-    _compiled_runner_platform_test_impl,
+replay_runner_platform_test = analysistest.make(
+    _replay_runner_platform_test_impl,
     config_settings = {
         "//command_line_option:extra_execution_platforms": [
             str(Label(":macos_aarch64")),
             str(Label(":macos_x86_64")),
         ],
         "//command_line_option:platforms": str(Label(":macos_x86_64")),
-    },
-)
-
-def _legacy_cross_build_test_impl(ctx):
-    env = analysistest.begin(ctx)
-    asserts.expect_failure(env, "Cross-built doctests require experimental_compile_rustdoc_tests")
-    return analysistest.end(env)
-
-legacy_cross_build_test = analysistest.make(
-    _legacy_cross_build_test_impl,
-    expect_failure = True,
-    config_settings = {
-        "//command_line_option:extra_execution_platforms": [
-            str(Label(":macos_aarch64")),
-            str(Label(":macos_x86_64")),
-        ],
-        "//command_line_option:platforms": str(Label(":macos_x86_64")),
-        str(Label("//rust/settings:experimental_compile_rustdoc_tests")): False,
     },
 )
 
@@ -587,7 +569,7 @@ def _define_targets():
     )
 
     rust_doc_test(
-        name = "compiled_runner_fixture",
+        name = "replay_runner_fixture",
         crate = ":lib",
         deps = [":adder"],
         tags = ["manual"],
@@ -678,34 +660,18 @@ def rustdoc_test_suite(name):
         target_under_test = ":lib_with_cc_library_doctest",
     )
 
-    compiled_runner_test(
-        name = "compiled_runner_test",
-        target_compatible_with = select({
-            ":compiled_doctests": [],
-            "//conditions:default": ["@platforms//:incompatible"],
-        }),
-        target_under_test = ":compiled_runner_fixture",
+    replay_runner_test(
+        name = "replay_runner_test",
+        target_under_test = ":replay_runner_fixture",
     )
 
-    compiled_runner_platform_test(
-        name = "compiled_runner_platform_test",
-        target_under_test = ":compiled_runner_fixture",
+    replay_runner_platform_test(
+        name = "replay_runner_platform_test",
+        target_under_test = ":replay_runner_fixture",
         target_compatible_with = [
             "@platforms//cpu:aarch64",
             "@platforms//os:macos",
-        ] + ([] if bazel_features.toolchains.has_default_test_toolchain_type else ["@platforms//:incompatible"]) + select({
-            ":compiled_doctests": [],
-            "//conditions:default": ["@platforms//:incompatible"],
-        }),
-    )
-
-    legacy_cross_build_test(
-        name = "legacy_cross_build_test",
-        target_under_test = ":lib_doctest",
-        target_compatible_with = [
-            "@platforms//cpu:aarch64",
-            "@platforms//os:macos",
-        ],
+        ] + ([] if bazel_features.toolchains.has_default_test_toolchain_type else ["@platforms//:incompatible"]),
     )
 
     rustdoc_for_generated_root_test(
@@ -740,9 +706,8 @@ def rustdoc_test_suite(name):
             ":rustdoc_test_with_dynamic_std_test",
             ":rustdoc_test_with_cc_link_flags_test",
             ":rustdoc_test_uses_cc_library_native_lib_test",
-            ":compiled_runner_test",
-            ":compiled_runner_platform_test",
-            ":legacy_cross_build_test",
+            ":replay_runner_test",
+            ":replay_runner_platform_test",
             ":rustdoc_for_generated_root_test",
             ":rustdoc_zip_output_test",
         ],

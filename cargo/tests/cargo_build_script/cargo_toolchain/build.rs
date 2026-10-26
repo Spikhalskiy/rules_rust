@@ -18,5 +18,6 @@ fn main() {
         "`CARGO` should come from the `cargo_toolchain`, not the `rust_toolchain` sysroot, got `{cargo}`"
     );
 
-    println!("cargo:rustc-env=CARGO_FROM_BUILD_SCRIPT={cargo}");
+    let name = Path::new(&cargo).file_name().unwrap().to_str().unwrap();
+    println!("cargo:rustc-env=CARGO_FROM_BUILD_SCRIPT={name}");
 }

@@ -66,6 +66,8 @@ pub(crate) fn options() -> Result<Options, OptionError> {
     let mut env_file_raw = None;
     let mut out_dir_raw = None;
     let mut arg_file_raw = None;
+    let mut bin_arg_file_raw = None;
+    let mut cargo_bin_name = None;
     let mut check_output_for_working_dir_raw = None;
     let mut touch_file = None;
     let mut copy_output_raw = None;
@@ -99,6 +101,16 @@ pub(crate) fn options() -> Result<Options, OptionError> {
         "--arg-file",
         "File(s) containing command line arguments to pass to the child process.",
         &mut arg_file_raw,
+    );
+    flags.define_repeated_flag(
+        "--bin-arg-file",
+        "Files containing BIN=ARG records; an empty BIN applies to every binary.",
+        &mut bin_arg_file_raw,
+    );
+    flags.define_flag(
+        "--cargo-bin-name",
+        "Exact Cargo binary name used to select arguments from --bin-arg-file.",
+        &mut cargo_bin_name,
     );
     flags.define_repeated_flag(
         "--check-output-for-working-dir",
